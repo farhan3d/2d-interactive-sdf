@@ -5,7 +5,6 @@
 uniform vec2 u_resolution;
 uniform vec2 u_mouse;
 uniform float u_time;
-
 #define OBJ_TYPES_COUNT 20
 #define CIRC_RAD 0.1
 #define CIRC_OFF_X 0.1
