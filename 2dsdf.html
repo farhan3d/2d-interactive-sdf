@@ -1,0 +1,894 @@
+<head>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        #canvas {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            position: fixed;
+            position: relative;
+        }
+        
+        .error {
+            font-family: Consolas;
+            font-size: 1.2em;
+            color: black;
+            box-sizing: border-box;
+            background-color: lightcoral;
+            border-radius: 2px;
+            border-color: lightblue;
+            border-width: thin;
+            border-style: solid;
+            line-height: 1.4em;
+            cursor:pointer;
+        }
+        .error:hover {
+            color: black;
+            background-color: brown;
+            border-color: blue;
+        }
+        #message {
+            font-family: Consolas;
+            font-size: 1.2em;
+            color: #ccc;
+            background-color: black;
+            font-weight: bold;
+            z-index: 2;
+            position: absolute;
+        }
+
+        #dat_gui_container {
+            position: absolute;
+            left: 0px;   /* position inside relatively positioned parent */
+            top: 0px;
+            z-index: 3;   /* adjust as needed */
+        }
+
+        /* Pause Button Style */
+        
+        /* Screenshot Button Style */
+
+        /* Reload Button Style */
+    </style>
+</head>
+<body>
+    <div id="message"></div>
+    <div id="dat_gui_container"></div>
+    <div id="container">
+        <!-- Pause Element -->
+    </div>
+    <!-- Screenshot Element -->
+    <!-- Reload Element -->
+</body>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/110/three.min.js"></script>
+<!-- Stats.js -->
+<script src='https://cdnjs.cloudflare.com/ajax/libs/stats.js/r16/Stats.min.js' onload="
+let stats = new Stats();
+compileTimePanel = stats.addPanel(new Stats.Panel('CT MS', '#ff8', '#221'));
+stats.showPanel(1);
+document.body.appendChild(stats.domElement);
+requestAnimationFrame(function loop() {
+    stats.update();
+    requestAnimationFrame(loop);
+});
+"></script>
+<!-- dat.gui -->
+
+<canvas id="canvas"></canvas>
+
+<!-- Shaders -->
+
+<script id='c:/my_coding/2d-interactive-sdf/2dsdf.glsl' type='x-shader/x-fragment'>
+uniform vec3        iResolution;
+uniform float       iTime;
+uniform float       iTimeDelta;
+uniform int         iFrame;
+uniform vec4        iDate;
+uniform vec3        iChannelResolution[10];
+uniform vec4        iMouse;
+uniform vec4        iMouseButton;
+uniform sampler2D   iChannel0;
+uniform sampler2D   iChannel1;
+uniform sampler2D   iChannel2;
+uniform sampler2D   iChannel3;
+uniform sampler2D   iChannel4;
+uniform sampler2D   iChannel5;
+uniform sampler2D   iChannel6;
+uniform sampler2D   iChannel7;
+uniform sampler2D   iChannel8;
+uniform sampler2D   iChannel9;
+uniform sampler2D   iKeyboard;
+uniform float       iSampleRate;
+
+#define iGlobalTime iTime
+#define iGlobalFrame iFrame
+
+#define SHADER_TOY
+
+
+// Comment below three lines and replace with iResolution, iTime, and iMouse
+// in entire code if testing this on Shadertoy. Also search for "shadertoy"
+// mentions in the code below and change as instructed to view on shadertoy.
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform vec2 u_mouse;
+uniform float u_time;
+#define OBJ_TYPES_COUNT 20
+#define CIRC_RAD 0.1
+#define CIRC_OFF_X 0.1
+#define CIRC_OFF_Y 0.1
+#define SQ_SIZE 0.08
+#define SQ_OFF_X 0.0
+#define SQ_OFF_Y 0.0
+#define ROT_SPEED_MULT 0.5
+#define MAX_OBJ_COUNT 10
+#define BLOOM_FACTOR 1.0
+#define BLEND_RADIUS 0.015
+#define LINE_THK 0.0025
+#define DRAW_WIREFRAME true
+#define ROT_HEX true
+#define DRAW_FIELDS false
+#define FUNKY_BLOOM false
+#define SHOW_BOUNDINGBOX true
+#define TOGGLE_PERSISTANT_SELECTION false
+
+vec2 obj_centers[MAX_OBJ_COUNT];
+
+// storing the +X, -X, +Y, -Y max points of all objects
+// to compute their respective bounding boxes.
+vec4 obj_limits[MAX_OBJ_COUNT];
+
+vec2 obj_type_map[MAX_OBJ_COUNT];
+
+float smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+    return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+float opSmoothSubtraction(float d1, float d2, float k) {
+    float h = clamp(0.5 - 0.5 * (d2 + d1) / k, 0.0, 1.0 );
+    return mix(d2, -d1, h) + k * h * (1.0 - h);
+}
+
+vec2 rotate(vec2 uv, float th) {
+    return mat2(cos(th), sin(th), -sin(th), cos(th)) * uv;
+}
+
+vec2 rotationByCenter(in float angle,in vec2 position,in vec2 center)
+{
+    //Function seen from https://www.shadertoy.com/view/XlsGWf
+    float rot = radians(angle);
+    mat2 rotation = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
+    return vec2((position-center)*rotation);
+}
+
+float sdHexagon(vec2 p, float s, float r, vec2 offset) {
+    vec2 rotated = p;
+    if (ROT_HEX) {
+        rotated = rotate(vec2(p.x, p.y), u_time * ROT_SPEED_MULT);
+    }
+    const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
+    p = vec2(rotated.x - offset.x, rotated.y - offset.y);
+    p = abs(p);
+    p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+    p -= vec2(clamp(p.x, -k.z * s, k.z * s), s);
+    return length(p) * sign(p.y) - r;
+}
+
+float sdSquare(vec2 uv, float radius, vec2 offset) {
+    float x = uv.x - offset.x;
+    float y = uv.y - offset.y;
+    return max(abs(x), abs(y)) - radius;
+}
+
+float sdSphere(vec2 uv, vec2 offset, float radius) {
+    float x = uv.x - offset.x;
+    float y = uv.y - offset.y;
+    return length(vec2(x, y)) - radius;
+}
+
+// create tight-fit bounding boxes around objects
+vec3 drawBoundingBoxes(vec3 in_vec,
+                       float[MAX_OBJ_COUNT] d,
+                       vec2 obj_cen[MAX_OBJ_COUNT]) {
+    vec3 ret_vec = in_vec;
+    for (int i = 0; i < MAX_OBJ_COUNT; i++) {
+
+    }
+    return ret_vec;
+}
+
+vec3 drawOutlineForObjects(vec3 in_vec, float[MAX_OBJ_COUNT] d) {
+    vec3 ret_vec = in_vec;
+    for (int i = 0; i < MAX_OBJ_COUNT; i++) {
+        if (d[i] == 0.0) {
+            break;
+        } else {
+            vec3 line_color = vec3(0.1, 0.2, 0.2);
+            ret_vec = mix(ret_vec, line_color, 1.0 -
+                smoothstep(0.0, 0.00175, abs(d[i])));
+        }
+    }
+    return ret_vec;
+}
+
+float drawLShape(vec2 uv, vec2 base_loc) {
+    float res = sdSphere(uv, vec2(base_loc.x, base_loc.y), CIRC_RAD * 0.75);
+    //res = smin(in_val, temp, BLEND_RADIUS);
+    float temp = sdSquare(uv, CIRC_RAD * 0.75, vec2(base_loc.x, base_loc.y - 0.075));
+    res = smin(res, temp, 0.0);
+    temp = sdSphere(uv, vec2(base_loc.x, base_loc.y), CIRC_RAD * 0.4);
+    res = opSmoothSubtraction(temp, res, 0.001);
+    temp = sdSquare(uv, CIRC_RAD * 0.75, vec2(base_loc.x, base_loc.y - 0.22));
+    res = smin(res, temp, 0.0);
+    temp = sdSquare(uv, CIRC_RAD * 0.75, vec2(base_loc.x + 0.14, base_loc.y - 0.22));
+    res = smin(res, temp, 0.0);
+    temp = sdSphere(uv, vec2(base_loc.x + 0.22, base_loc.y - 0.22), CIRC_RAD * 0.75);
+    res = smin(res, temp, 0.0);
+    temp = sdSphere(uv, vec2(base_loc.x + 0.22, base_loc.y - 0.22), CIRC_RAD * 0.4);
+    res = opSmoothSubtraction(temp, res, 0.001);
+    vec2 rotated = rotationByCenter(45.0, uv, base_loc);
+    temp = sdSquare(rotated, CIRC_RAD * 0.75, vec2(0.155, -0.28));
+    res = opSmoothSubtraction(temp, res, 0.001);
+    return res;
+}
+
+vec3 drawHoverHighlight(vec2 uv, vec2 obj_cen[MAX_OBJ_COUNT],
+                        float[MAX_OBJ_COUNT] d,
+                        int[OBJ_TYPES_COUNT] object_class) {
+    vec3 ret_vec;
+
+    // below commented code for shadertoy
+    //vec4 m = vec4 (u_mouse.x / u_resolution.y - 1.0,
+    //    u_mouse.y / u_resolution.y - 0.75,
+    //    u_mouse.z, u_mouse.w);
+    vec2 m = vec2(u_mouse.x, u_mouse.y);
+    // below line for shadertoy
+    //vec2 mouse_loc_adj = vec2(m.x + 0.1125, m.y + 0.25);
+    vec2 mouse_loc_adj = vec2(m.x - 0.5, m.y - 0.5);
+
+    // while mouse button is pressed in shadertoy, highlight object clicked
+    // below if check only for shadertoy
+    //if (m.x > 0.0) {
+        for (int i = 0; i < MAX_OBJ_COUNT; i++)
+        {
+            if (object_class[i] == 0) {
+                float test_val = sdSphere(mouse_loc_adj, obj_cen[i], CIRC_RAD);
+                if (test_val < 0.0) {
+                    vec3 hover_fill_col = vec3(0.2, 0.25, 0.25);
+                    if (d[i] < 0.0)
+                    {
+                        ret_vec = hover_fill_col;
+                    }
+                }
+            } else if (object_class[i] == 2) {
+                float hex1 = sdHexagon(mouse_loc_adj, SQ_SIZE * 1.15, SQ_SIZE * 0.35,
+                    obj_centers[i]);
+                float hex2 = sdHexagon(mouse_loc_adj, SQ_SIZE * 0.65, SQ_SIZE * 0.45,
+                    obj_centers[i]);
+                float test_val = opSmoothSubtraction(hex2, hex1, 0.001);
+                if (test_val < 0.0) {
+                    vec3 hover_fill_col = vec3(0.2, 0.25, 0.25);
+                    if (d[i] < 0.0)
+                    {
+                        ret_vec = hover_fill_col;
+                    }
+                }
+            } else if (object_class[i] == 3) {
+                float test_val = sdSquare(mouse_loc_adj, SQ_SIZE * 1.25,
+                    vec2(obj_centers[i].x, obj_centers[i].y));
+                if (test_val < 0.0) {
+                    vec3 hover_fill_col = vec3(0.2, 0.25, 0.25);
+                    if (d[i] < 0.0)
+                    {
+                        ret_vec = hover_fill_col;
+                    }
+                }
+            } else if (object_class[i] == 4) {
+                float test_val = drawLShape(mouse_loc_adj,
+                    obj_centers[i]);
+                if (test_val < 0.0) {
+                    vec3 hover_fill_col = vec3(0.2, 0.25, 0.25);
+                    if (d[i] < 0.0)
+                    {
+                        ret_vec = hover_fill_col;
+                    }
+                }
+            }
+        }
+    //}
+    return ret_vec;
+}
+
+vec3 drawScene(vec2 uv) {
+    vec3 ret_vec;
+    float res;
+    ret_vec = vec3(0.15, 0.5, 0.8);
+    float d[MAX_OBJ_COUNT];
+    int obj_class[OBJ_TYPES_COUNT];
+
+    // creating objects
+    d[0] = sdSphere(uv, vec2(CIRC_OFF_X, CIRC_OFF_Y), CIRC_RAD);
+    obj_centers[0] = vec2(CIRC_OFF_X, CIRC_OFF_Y);
+    obj_class[0] = 0;
+    d[1] = sdHexagon(uv, SQ_SIZE * 1.15, SQ_SIZE * 0.35, vec2(SQ_OFF_X, SQ_OFF_Y));
+    obj_centers[1] = vec2(SQ_OFF_X, SQ_OFF_Y);
+    obj_class[1] = 1;
+    d[2] = sdHexagon(uv, SQ_SIZE * 0.65, SQ_SIZE * 0.45, vec2(SQ_OFF_X, SQ_OFF_Y));
+    obj_centers[2] = vec2(SQ_OFF_X, SQ_OFF_Y);
+    obj_class[2] = 1;
+    d[3] = opSmoothSubtraction(d[2], d[1], 0.001);
+    obj_centers[3] = vec2(SQ_OFF_X, SQ_OFF_Y);
+    obj_class[3] = 2;
+    d[4] = sdSquare(uv, SQ_SIZE * 1.25, vec2(SQ_OFF_X - 0.15, SQ_OFF_Y - 0.125));
+    obj_centers[4] = vec2(SQ_OFF_X - 0.15, SQ_OFF_Y - 0.125);
+    obj_class[4] = 3;
+    float full_un = smin(d[4], d[3], BLEND_RADIUS);
+    full_un = smin(full_un, d[0], BLEND_RADIUS);
+    d[5] = sdSquare(uv, SQ_SIZE * 1.25, vec2(SQ_OFF_X - 0.275, SQ_OFF_Y));
+    obj_centers[5] = vec2(SQ_OFF_X - 0.275, SQ_OFF_Y);
+    obj_class[5] = 3;
+    full_un = opSmoothSubtraction(d[5], full_un, 0.001);
+
+    // create test L bracket thingy
+    obj_centers[6] = vec2(0.3, 0.0);
+    d[6] = drawLShape(uv, obj_centers[6]);
+    full_un = smin(full_un, d[6], BLEND_RADIUS);
+    obj_class[6] = 4;
+
+    ret_vec += drawHoverHighlight(uv, obj_centers, d, obj_class);
+
+    // create the global objects field around them
+    res = full_un;
+    if (DRAW_FIELDS) {
+        ret_vec *= 1.5 - exp(-15.0 * abs(res));
+        ret_vec *= 0.75 + 0.1 * cos(300.0 * res);
+    }
+
+    // create the consumed part of drawn objects
+    if ((DRAW_WIREFRAME) && (true))
+    {
+        ret_vec = drawOutlineForObjects(ret_vec, d);
+    }
+
+    // draw object boundaries
+    ret_vec = mix(ret_vec, vec3(0.65), 1.0 - smoothstep(0.0, LINE_THK, abs(res)));
+
+    // color inside the combined objects
+    vec3 obj_fill_col = vec3(ret_vec.x + 0.1, ret_vec.y + 0.25, ret_vec.z + 0.25);
+    if (FUNKY_BLOOM) {
+        res = smoothstep(0.0, 0.0025 * BLOOM_FACTOR * sin(u_time), res * 0.005);
+    } else {
+        res = smoothstep(0.0, 0.005 * BLOOM_FACTOR , res);
+    }
+    ret_vec = mix(obj_fill_col, ret_vec, res);
+
+    return ret_vec;
+}
+
+// below main block for shadertoy
+/*
+void mainImage(out vec4 fragColor, in vec2 fragCoord)
+{
+    vec2 uv = fragCoord / iResolution.xy;
+    uv -= 0.5;
+    float aspect = iResolution.x / iResolution.y;
+    uv.x *= aspect;
+    vec3 color = drawScene(uv);
+
+    fragColor = vec4(color, 1.0);
+}
+*/
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+    uv -= 0.5;
+    float aspect = u_resolution.x / u_resolution.y;
+    uv.x *= aspect;
+    vec3 color = drawScene(uv);
+
+    gl_FragColor = vec4(color, 1.0);
+}
+
+</script>
+
+<script type="text/javascript">
+    let vscode = undefined;
+    if (typeof acquireVsCodeApi === 'function') {
+        vscode = acquireVsCodeApi();
+    }
+    var compileTimePanel;
+
+    let revealError = function(line, file) {
+        if (vscode) {
+            vscode.postMessage({
+                command: 'showGlslsError',
+                line: line,
+                file: file
+            });
+        }
+    };
+
+    let currentShader = {};
+    // Error Callback
+    console.error = function () {
+        if('7' in arguments) {
+            let errorRegex = /ERROR: \d+:(\d+):\W(.*)\n/g;
+            let rawErrors = arguments[7];
+            let match;
+            
+            let diagnostics = [];
+            let message = '';
+            while(match = errorRegex.exec(rawErrors)) {
+                let lineNumber = Number(match[1]) - currentShader.LineOffset;
+                let error = match[2];
+                diagnostics.push({
+                    line: lineNumber,
+                    message: error
+                });
+                let lineHighlight = `<a class='error' unselectable onclick='revealError(${lineNumber}, "${currentShader.File}")'>Line ${lineNumber}</a>`;
+                message += `<li>${lineHighlight}: ${error}</li>`;
+            }
+            console.log(message);
+            let diagnosticBatch = {
+                filename: currentShader.File,
+                diagnostics: diagnostics
+            };
+            if (vscode !== undefined) {
+                vscode.postMessage({
+                    command: 'showGlslDiagnostic',
+                    type: 'error',
+                    diagnosticBatch: diagnosticBatch
+                });
+            }
+    
+            $('#message').append(`<h3>Shader failed to compile - ${currentShader.Name} </h3>`);
+            $('#message').append('<ul>');
+            $('#message').append(message);
+            $('#message').append('</ul>');
+        }
+    };
+
+    // Development feature: Output warnings from third-party libraries
+    // console.warn = function (message) {
+    //     $("#message").append(message + '<br>');
+    // };
+
+    let clock = new THREE.Clock();
+    let pausedTime = 0.0;
+    let deltaTime = 0.0;
+    let startingTime = 0;
+    let time = startingTime;
+
+    let date = new THREE.Vector4();
+
+    let updateDate = function() {
+        let today = new Date();
+        date.x = today.getFullYear();
+        date.y = today.getMonth();
+        date.z = today.getDate();
+        date.w = today.getHours() * 60 * 60 
+            + today.getMinutes() * 60
+            + today.getSeconds()
+            + today.getMilliseconds() * 0.001;
+    };
+    updateDate();
+
+    let paused = false;
+    let pauseButton = document.getElementById('pause-button');
+    if (pauseButton) {
+        pauseButton.onclick = function(){
+            paused = pauseButton.checked;
+            if (!paused) {
+                // Audio Resume
+                pausedTime += clock.getDelta();
+            }
+            else {
+                // Audio Pause
+            }
+        };
+    }
+    
+    {
+        let screenshotButton = document.getElementById("screenshot");
+        if (screenshotButton) {
+            screenshotButton.addEventListener('click', saveScreenshot);
+        }
+    }
+    
+    {
+        let reloadButton = document.getElementById("reload");
+        if (reloadButton) {
+            reloadButton.addEventListener('click', reloadWebview);
+        }
+    }
+    
+    window.addEventListener('message', event => {
+        const message = event.data; // The JSON data our extension sent
+        switch (message.command) {
+            case 'pause':
+                if (pauseButton) {
+                    pauseButton.checked = !pauseButton.checked;
+                }
+                paused = !paused;
+                if (!paused) {
+                    // Audio Resume
+                    pausedTime += clock.getDelta();
+                }
+                else {
+                    // Audio Pause
+                }
+                break;
+            case 'screenshot':
+                saveScreenshot();
+                break;
+        }
+    });
+
+    let canvas = document.getElementById('canvas');
+    let gl = canvas.getContext('webgl2');
+    let isWebGL2 = gl != null;
+    if (gl == null) gl = canvas.getContext('webgl');
+    let supportsFloatFramebuffer = (gl.getExtension('EXT_color_buffer_float') != null) || (gl.getExtension('WEBGL_color_buffer_float') != null);
+    let supportsHalfFloatFramebuffer = (gl.getExtension('EXT_color_buffer_half_float') != null);
+    let framebufferType = THREE.UnsignedByteType;
+    if (supportsFloatFramebuffer) framebufferType = THREE.FloatType;
+    else if (supportsHalfFloatFramebuffer) framebufferType = THREE.HalfFloatType;
+
+    let renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, context: gl, preserveDrawingBuffer: true });
+    let resolution = new THREE.Vector3();
+    let mouse = new THREE.Vector4(-1, -1, -1, -1);
+    let mouseButton = new THREE.Vector4(0, 0, 0, 0);
+    let normalizedMouse = new THREE.Vector2(0, 0);
+    let frameCounter = 0;
+
+    // Audio Init
+    const audioContext = {
+        sampleRate: 0
+    };
+    // Audio Resume
+
+    let buffers = [];
+    // Buffers
+    buffers.push({
+        Name: 'c:/my_coding/2d-interactive-sdf/2dsdf.glsl',
+        File: 'c:/my_coding/2d-interactive-sdf/2dsdf.glsl',
+        LineOffset: 133,
+        Target: null,
+        ChannelResolution: Array(10).fill(new THREE.Vector3(0,0,0)),
+        PingPongTarget: null,
+        PingPongChannel: 0,
+        Dependents: [],
+        Shader: new THREE.ShaderMaterial({
+            fragmentShader: document.getElementById('c:/my_coding/2d-interactive-sdf/2dsdf.glsl').textContent,
+            depthWrite: false,
+            depthTest: false,
+            uniforms: {
+                iResolution: { type: 'v3', value: resolution },
+                iTime: { type: 'f', value: 0.0 },
+                iTimeDelta: { type: 'f', value: 0.0 },
+                iFrame: { type: 'i', value: 0 },
+                iMouse: { type: 'v4', value: mouse },
+                iMouseButton: { type: 'v2', value: mouseButton },
+    
+                iChannelResolution: { type: 'v3v', value: Array(10).fill(new THREE.Vector3(0,0,0)) },
+    
+                iDate: { type: 'v4', value: date },
+                iSampleRate: { type: 'f', value: audioContext.sampleRate },
+    
+                iChannel0: { type: 't' },
+                iChannel1: { type: 't' },
+                iChannel2: { type: 't' },
+                iChannel3: { type: 't' },
+                iChannel4: { type: 't' },
+                iChannel5: { type: 't' },
+                iChannel6: { type: 't' },
+                iChannel7: { type: 't' },
+                iChannel8: { type: 't' },
+                iChannel9: { type: 't' },
+    
+                resolution: { type: 'v2', value: resolution },
+                time: { type: 'f', value: 0.0 },
+                mouse: { type: 'v2', value: normalizedMouse },
+            }
+        })
+    });
+    let commonIncludes = [];
+    // Includes
+    
+
+    // WebGL2 inserts more lines into the shader
+    if (isWebGL2) {
+        for (let buffer of buffers) {
+            buffer.LineOffset += 16;
+        }
+    }
+
+    // Keyboard Init
+    
+    // Uniforms Init
+    // Uniforms Update
+
+    let texLoader = new THREE.TextureLoader();
+    // Texture Init
+    
+
+    let scene = new THREE.Scene();
+    let quad = new THREE.Mesh(
+        new THREE.PlaneGeometry(resolution.x, resolution.y),
+        null
+    );
+    scene.add(quad);
+    
+    let camera = new THREE.OrthographicCamera(-resolution.x / 2.0, resolution.x / 2.0, resolution.y / 2.0, -resolution.y / 2.0, 1, 1000);
+    camera.position.set(0, 0, 10);
+
+    // Run every shader once to check for compile errors
+    let compileTimeStart = performance.now();
+    let failed=0;
+    for (let include of commonIncludes) {
+        currentShader = {
+            Name: include.Name,
+            File: include.File,
+            // add two for version and precision lines
+            LineOffset: 26 + 2
+        };
+        // bail if there is an error found in the include script
+        if(compileFragShader(gl, document.getElementById(include.Name).textContent) == false) {
+            throw Error(`Failed to compile ${include.Name}`);
+        }
+    }
+
+    for (let buffer of buffers) {
+        currentShader = {
+            Name: buffer.Name,
+            File: buffer.File,
+            LineOffset: buffer.LineOffset
+        };
+        quad.material = buffer.Shader;
+        renderer.setRenderTarget(buffer.Target);
+        renderer.render(scene, camera);
+    }
+    currentShader = {};
+    let compileTimeEnd = performance.now();
+    let compileTime = compileTimeEnd - compileTimeStart;
+    if (compileTimePanel !== undefined) {
+        for (let i = 0; i < 200; i++) {
+            compileTimePanel.update(compileTime, 200);
+        }
+    }
+
+    computeSize();
+    render();
+
+    function addLineNumbers( string ) {
+        let lines = string.split( '\\n' );
+        for ( let i = 0; i < lines.length; i ++ ) {
+            lines[ i ] = ( i + 1 ) + ': ' + lines[ i ];
+        }
+        return lines.join( '\\n' );
+    }
+
+    function compileFragShader(gl, fsSource) {
+        const fs = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(fs, fsSource);
+        gl.compileShader(fs);
+        if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+            const fragmentLog = gl.getShaderInfoLog(fs);
+            console.error( 'THREE.WebGLProgram: shader error: ', gl.getError(), 'gl.COMPILE_STATUS', null, null, null, null, fragmentLog );
+            return false;
+        }
+        return true;
+    }
+
+    function render() {
+        requestAnimationFrame(render);
+        // Pause Whole Render
+        if (paused) return;
+
+        // Advance Time
+        deltaTime = clock.getDelta();
+        time = startingTime + clock.getElapsedTime() - pausedTime;
+        updateDate();
+
+        // Audio Update
+
+        for (let buffer of buffers) {
+            buffer.Shader.uniforms['iResolution'].value = resolution;
+            buffer.Shader.uniforms['iTimeDelta'].value = deltaTime;
+            buffer.Shader.uniforms['iTime'].value = time;
+            buffer.Shader.uniforms['iFrame'].value = frameCounter;
+            buffer.Shader.uniforms['iMouse'].value = mouse;
+            buffer.Shader.uniforms['iMouseButton'].value = mouseButton;
+
+            buffer.Shader.uniforms['resolution'].value = resolution;
+            buffer.Shader.uniforms['time'].value = time;
+            buffer.Shader.uniforms['mouse'].value = normalizedMouse;
+
+            quad.material = buffer.Shader;
+            renderer.setRenderTarget(buffer.Target);
+            renderer.render(scene, camera);
+        }
+        
+        // Uniforms Update
+
+        // Keyboard Update
+
+        for (let buffer of buffers) {
+            if (buffer.PingPongTarget) {
+                [buffer.PingPongTarget, buffer.Target] = [buffer.Target, buffer.PingPongTarget];
+                buffer.Shader.uniforms[`iChannel${buffer.PingPongChannel}`].value = buffer.PingPongTarget.texture;
+                for (let dependent of buffer.Dependents) {
+                    const dependentBuffer = buffers[dependent.Index];
+                    dependentBuffer.Shader.uniforms[`iChannel${dependent.Channel}`].value = buffer.Target.texture;
+                }
+            }
+        }
+
+        frameCounter++;
+    }
+    function computeSize() {
+        let forceAspectRatio = (width, height) => {
+            // Forced aspect ratio
+            let forcedAspects = [0,0];
+            let forcedAspectRatio = forcedAspects[0] / forcedAspects[1];
+            let aspectRatio = width / height;
+
+            if (forcedAspectRatio <= 0 || !isFinite(forcedAspectRatio)) {
+                let resolution = new THREE.Vector3(width, height, 1.0);
+                return resolution;
+            }
+            else if (aspectRatio < forcedAspectRatio) {
+                let resolution = new THREE.Vector3(width, Math.floor(width / forcedAspectRatio), 1);
+                return resolution;
+            }
+            else {
+                let resolution = new THREE.Vector3(Math.floor(height * forcedAspectRatio), height, 1);
+                return resolution;
+            }
+        };
+        
+        // Compute forced aspect ratio and align canvas
+        resolution = forceAspectRatio(window.innerWidth, window.innerHeight);
+        canvas.style.left = `${(window.innerWidth - resolution.x) / 2}px`;
+        canvas.style.top = `${(window.innerHeight - resolution.y) / 2}px`;
+
+        for (let buffer of buffers) {
+            if (buffer.Target) {
+                buffer.Target.setSize(resolution.x, resolution.y);
+            }
+            if (buffer.PingPongTarget) {
+                buffer.PingPongTarget.setSize(resolution.x, resolution.y);
+            }
+        }
+        renderer.setSize(resolution.x, resolution.y, false);
+        
+        // Update Camera and Mesh
+        quad.geometry = new THREE.PlaneGeometry(resolution.x, resolution.y);
+        camera.left = -resolution.x / 2.0;
+        camera.right = resolution.x / 2.0;
+        camera.top = resolution.y / 2.0;
+        camera.bottom = -resolution.y / 2.0;
+        camera.updateProjectionMatrix();
+
+        // Reset iFrame on resize for shaders that rely on first-frame setups
+        frameCounter = 0;
+    }
+    function saveScreenshot() {
+        let doSaveScreenshot = () => {
+            renderer.domElement.toBlob(function(blob){
+                let a = document.createElement('a');
+                let url = URL.createObjectURL(blob);
+                a.href = url;
+                a.download = 'shadertoy.png';
+                a.click();
+            }, 'image/png', 1.0);
+        };
+
+        let forcedScreenshotResolution = [0,0];
+        if (forcedScreenshotResolution[0] <= 0 || forcedScreenshotResolution[1] <= 0) {
+            renderer.render(scene, camera);
+            doSaveScreenshot();
+        }
+        else {
+            renderer.setSize(forcedScreenshotResolution[0], forcedScreenshotResolution[1], false);
+            
+            for (let buffer of buffers) {
+                buffer.Shader.uniforms['iResolution'].value = new THREE.Vector3(forcedScreenshotResolution[0], forcedScreenshotResolution[1], 1);
+                buffer.Shader.uniforms['resolution'].value = new THREE.Vector3(forcedScreenshotResolution[0], forcedScreenshotResolution[1], 1);
+
+                quad.material = buffer.Shader;
+                renderer.setRenderTarget(buffer.Target);
+                renderer.render(scene, camera);
+            }
+
+            doSaveScreenshot();
+            renderer.setSize(resolution.x, resolution.y, false);
+        }
+    }
+    function reloadWebview() {
+        if (vscode !== undefined) {
+            vscode.postMessage({ command: 'reloadWebview' });
+        }
+    }
+    function updateMouse() {
+        if (vscode !== undefined) {
+            vscode.postMessage({
+                command: 'updateMouse',
+                mouse: {
+                    x: mouse.x,
+                    y: mouse.y,
+                    z: mouse.z,
+                    w: mouse.w
+                },
+                normalizedMouse: {
+                    x: normalizedMouse.x,
+                    y: normalizedMouse.y
+                }
+            });
+        }
+    }
+    let dragging = false;
+    function updateNormalizedMouseCoordinates(clientX, clientY) {
+        let rect = canvas.getBoundingClientRect();
+        let mouseX = clientX - rect.left;
+        let mouseY = resolution.y - clientY - rect.top;
+
+        if (mouseButton.x + mouseButton.y != 0) {
+            mouse.x = mouseX;
+            mouse.y = mouseY;
+        }
+
+        normalizedMouse.x = mouseX / resolution.x;
+        normalizedMouse.y = mouseY / resolution.y;
+    }
+    canvas.addEventListener('mousemove', function(evt) {
+        updateNormalizedMouseCoordinates(evt.clientX, evt.clientY);
+        updateMouse();
+    }, false);
+    canvas.addEventListener('mousedown', function(evt) {
+        if (evt.button == 0)
+            mouseButton.x = 1;
+        if (evt.button == 2)
+            mouseButton.y = 1;
+
+        if (!dragging) {
+            updateNormalizedMouseCoordinates(evt.clientX, evt.clientY);
+            mouse.z = mouse.x;
+            mouse.w = mouse.y;
+            dragging = true
+        }
+
+        updateMouse();
+    }, false);
+    canvas.addEventListener('mouseup', function(evt) {
+        if (evt.button == 0)
+            mouseButton.x = 0;
+        if (evt.button == 2)
+            mouseButton.y = 0;
+
+        dragging = false;
+        mouse.z = -mouse.z;
+        mouse.w = -mouse.w;
+
+        updateMouse();
+    }, false);
+    window.addEventListener('resize', function() {
+        computeSize();
+    });
+
+    // Keyboard Callbacks
+</script>

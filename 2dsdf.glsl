@@ -2,6 +2,10 @@
 // in entire code if testing this on Shadertoy. Also search for "shadertoy"
 // mentions in the code below and change as instructed to view on shadertoy.
 
+#ifdef GL_ES
+precision mediump float;
+#endif
+
 uniform vec2 u_resolution;
 uniform vec2 u_mouse;
 uniform float u_time;
@@ -19,7 +23,7 @@ uniform float u_time;
 #define LINE_THK 0.0025
 #define DRAW_WIREFRAME true
 #define ROT_HEX true
-#define DRAW_FIELDS false
+#define DRAW_FIELDS true
 #define FUNKY_BLOOM false
 #define SHOW_BOUNDINGBOX true
 #define TOGGLE_PERSISTANT_SELECTION false
@@ -46,8 +50,7 @@ vec2 rotate(vec2 uv, float th) {
     return mat2(cos(th), sin(th), -sin(th), cos(th)) * uv;
 }
 
-vec2 rotationByCenter(in float angle,in vec2 position,in vec2 center)
-{
+vec2 rotationByCenter(in float angle,in vec2 position,in vec2 center) {
     //Function seen from https://www.shadertoy.com/view/XlsGWf
     float rot = radians(angle);
     mat2 rotation = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
@@ -141,15 +144,13 @@ vec3 drawHoverHighlight(vec2 uv, vec2 obj_cen[MAX_OBJ_COUNT],
 
     // while mouse button is pressed in shadertoy, highlight object clicked
     // below if check only for shadertoy
-    //if (m.x > 0.0) {
-        for (int i = 0; i < MAX_OBJ_COUNT; i++)
-        {
+    if (m.x > 0.0) {
+        for (int i = 0; i < MAX_OBJ_COUNT; i++) {
             if (object_class[i] == 0) {
                 float test_val = sdSphere(mouse_loc_adj, obj_cen[i], CIRC_RAD);
                 if (test_val < 0.0) {
                     vec3 hover_fill_col = vec3(0.2, 0.25, 0.25);
-                    if (d[i] < 0.0)
-                    {
+                    if (d[i] < 0.0) {
                         ret_vec = hover_fill_col;
                     }
                 }
@@ -161,8 +162,7 @@ vec3 drawHoverHighlight(vec2 uv, vec2 obj_cen[MAX_OBJ_COUNT],
                 float test_val = opSmoothSubtraction(hex2, hex1, 0.001);
                 if (test_val < 0.0) {
                     vec3 hover_fill_col = vec3(0.2, 0.25, 0.25);
-                    if (d[i] < 0.0)
-                    {
+                    if (d[i] < 0.0) {
                         ret_vec = hover_fill_col;
                     }
                 }
@@ -171,8 +171,7 @@ vec3 drawHoverHighlight(vec2 uv, vec2 obj_cen[MAX_OBJ_COUNT],
                     vec2(obj_centers[i].x, obj_centers[i].y));
                 if (test_val < 0.0) {
                     vec3 hover_fill_col = vec3(0.2, 0.25, 0.25);
-                    if (d[i] < 0.0)
-                    {
+                    if (d[i] < 0.0) {
                         ret_vec = hover_fill_col;
                     }
                 }
@@ -181,14 +180,13 @@ vec3 drawHoverHighlight(vec2 uv, vec2 obj_cen[MAX_OBJ_COUNT],
                     obj_centers[i]);
                 if (test_val < 0.0) {
                     vec3 hover_fill_col = vec3(0.2, 0.25, 0.25);
-                    if (d[i] < 0.0)
-                    {
+                    if (d[i] < 0.0) {
                         ret_vec = hover_fill_col;
                     }
                 }
             }
         }
-    //}
+    }
     return ret_vec;
 }
 
@@ -223,10 +221,10 @@ vec3 drawScene(vec2 uv) {
     full_un = opSmoothSubtraction(d[5], full_un, 0.001);
 
     // create test L bracket thingy
-    obj_centers[6] = vec2(0.3, 0.0);
-    d[6] = drawLShape(uv, obj_centers[6]);
-    full_un = smin(full_un, d[6], BLEND_RADIUS);
-    obj_class[6] = 4;
+    //obj_centers[6] = vec2(0.3, 0.0);
+    //d[6] = drawLShape(uv, obj_centers[6]);
+    //full_un = smin(full_un, d[6], BLEND_RADIUS);
+    //obj_class[6] = 4;
 
     ret_vec += drawHoverHighlight(uv, obj_centers, d, obj_class);
 
@@ -238,8 +236,7 @@ vec3 drawScene(vec2 uv) {
     }
 
     // create the consumed part of drawn objects
-    if ((DRAW_WIREFRAME) && (true))
-    {
+    if ((DRAW_WIREFRAME) && (true)) {
         ret_vec = drawOutlineForObjects(ret_vec, d);
     }
 
